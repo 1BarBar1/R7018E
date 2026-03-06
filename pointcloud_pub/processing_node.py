@@ -8,7 +8,7 @@ from rclpy.qos import QoSProfile
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 import numpy as np
-import open3d as o3d
+#import open3d as o3d
 from pointcloud_pub.depth import Depth
 from pointcloud_pub.vlm import Clipseg
 import time
