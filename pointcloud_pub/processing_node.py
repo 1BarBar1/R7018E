@@ -1,4 +1,5 @@
 from pointcloud_pub.pointcloud_publisher import PointCloudPublisher
+from pointcloud_pub.pose_publisher import PosePublisher
 from message_filters import Subscriber, ApproximateTimeSynchronizer
 import rclpy
 from rclpy.node import Node
@@ -19,6 +20,7 @@ class ProcessingNode(Node):
         self.seg = seg
         self.bridge = CvBridge()
         self.pc_pub = PointCloudPublisher()
+        self.po_pub = PosePublisher()
 
         self.K = np.array([
             [389.0664978027344,   0.0,                319.8500061035156],
@@ -68,11 +70,13 @@ class ProcessingNode(Node):
 
         mask,logits = self.seg.get_segmentation(color_frame)
 
-        depth = Depth(depth_frame, self.K)
+        #depth = Depth(depth_frame, self.K)
         # Convert to numpy points
-        points = depth.o3dPoints_to_np()
+        #points = depth.o3dPoints_to_np()
+        depth_image = depth_frame.astype(np.uint16)
 
-        mask_points= []
+        mask_points = []
+        points_all = []
         class_map = mask.argmax(axis=0)
         conf = mask.max(axis=0)
 
@@ -81,16 +85,31 @@ class ProcessingNode(Node):
         fy = self.K[1,1]
         cx = self.K[0,2]
         cy = self.K[1,2]
+        '''
+        for v in range(depth_image.shape[0]):
+            for u in range(depth_image.shape[1]):
+                Z = depth_image[v,u] / 1000.0
+                if Z <= 0:
+                    continue
+                if Z > 4.0:
+                    continue
 
+                X = (u-cx)*Z/fx
+                Y = (v-cy)*Z/fy
 
+                points_all.append([X,Y,Z])
 
+        '''
         for v,u in zip(ys, xs):
-            Z = depth_frame[v,u] / 1000.0
+            Z = depth_image[v,u] / 1000.0
             if Z <= 0:
-                continue
-            if Z > 4.0:
-                continue
-
+                 continue
+            if class_map[v,u] == 1:
+                if Z > 2.0:
+                    continue
+            if class_map[v,u] == 1:
+                if Z > 6.0:
+                    continue
             X = (u-cx)*Z/fx
             Y = (v-cy)*Z/fy
 
@@ -100,27 +119,59 @@ class ProcessingNode(Node):
 
         #seg.visulize(mask)
         try:
-
+            point_all = np.asarray(points_all)
             mask_points = np.asarray(mask_points)
             human = mask_points[mask_points[:,3]==0]
             obstacle = mask_points[mask_points[:,3]==1]
+            # data: shape (n_samples, 4)
+            print("Human shape",human.shape)
+            X = human[:, :3]   # keep x,y,z only
+
+            k = 1
+            max_iters = 2
 
 
+            # Initialize centroids with a starting value
+            centroids = np.array([0.0, 0.0, 0.0])
+            original_X = X.copy() # Keep the original data if you need it
+            print(original_X.shape)
+            for _ in range(max_iters):
+                if X.shape[0] == 0:
+                    break
 
+                # 1. Compute current mean
+                current_mean = np.mean(X, axis=0)
+
+                # 2. Check for convergence (did the mean move?)
+                if np.allclose(centroids, current_mean, atol=1e-4):
+                    break
+
+                centroids = current_mean
+
+                # 3. Filter points for the NEXT iteration
+                distances = np.linalg.norm(X - centroids, axis=1)
+                # Strategy: Use a relative threshold or a fixed one if units are known
+                distance_mask = distances <= 1.2
+                X = X[distance_mask, :]
+            print(X.shape)
+            print(centroids.shape)
             # Publish using your publisher
             if human.size > 0:
                 msg_human = self.pc_pub.create_pointcloud2(human,self.frame)
                 self.pc_pub.publisher.publish(msg_human)
 
+            msg_pose = self.po_pub.create_pose_array(centroids, self.frame)
+            self.po_pub.publisher.publish(msg_pose)
+            '''
             if obstacle.size > 0:
                 msg_obs = self.pc_pub.create_pointcloud2(obstacle,self.frame)
                 self.pc_pub.publisher.publish(msg_obs)
-
+            '''
             '''
             msg_points = self.pc_pub.create_pointcloud2(points_points,self.frame)
             self.pc_pub.publisher.publish(msg_points)
             '''
-        except IndexError:
+        except (ValueError):
             print("mask error")
         # Clear frames after processing
 

@@ -15,6 +15,7 @@ setup(
     entry_points={
         'console_scripts': [
             'publisher = pointcloud_pub.processing_node:main',
+
         ],
     },
 )

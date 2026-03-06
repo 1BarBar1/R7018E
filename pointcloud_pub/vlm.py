@@ -6,7 +6,7 @@ import time
 import torch.nn.functional as F
 import torch
 class Clipseg():
-  def __init__(self, prompts = ["humanoid", "object"]):
+  def __init__(self, prompts = ["human", "obstacle"]):
     # Load model and processor
     self.processor = CLIPSegProcessor.from_pretrained("CIDAS/clipseg-rd64-refined")
     self.model = CLIPSegForImageSegmentation.from_pretrained("CIDAS/clipseg-rd64-refined")
