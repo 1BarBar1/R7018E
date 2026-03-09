@@ -23,8 +23,8 @@ class ProcessingNode(Node):
         self.po_pub = PosePublisher()
 
         self.K = np.array([
-            [389.0664978027344,   0.0,                319.8500061035156],
-            [0.0,                 389.0664978027344,  237.91696166992188],
+            [908.531982421875,   0.0,                639.4365844726562],
+            [0.0,                 907.80322265625,  365.8372497558594],
             [0.0,                 0.0,                1.0]
             ], dtype=np.float32)
         self.frame ="camera_depth_optical_frame"
@@ -67,7 +67,7 @@ class ProcessingNode(Node):
 
         color_frame = self.bridge.imgmsg_to_cv2(color_msg, desired_encoding='bgr8')
         depth_frame = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding='passthrough')
-
+        print("test 1")
         mask,logits = self.seg.get_segmentation(color_frame)
 
         #depth = Depth(depth_frame, self.K)
@@ -101,6 +101,7 @@ class ProcessingNode(Node):
 
         '''
         for v,u in zip(ys, xs):
+            print("test")
             Z = depth_image[v,u] / 1000.0
             if Z <= 0:
                  continue
@@ -124,7 +125,6 @@ class ProcessingNode(Node):
             human = mask_points[mask_points[:,3]==0]
             obstacle = mask_points[mask_points[:,3]==1]
             # data: shape (n_samples, 4)
-            print("Human shape",human.shape)
             X = human[:, :3]   # keep x,y,z only
 
             k = 1
@@ -134,7 +134,7 @@ class ProcessingNode(Node):
             # Initialize centroids with a starting value
             centroids = np.array([0.0, 0.0, 0.0])
             original_X = X.copy() # Keep the original data if you need it
-            print(original_X.shape)
+
             for _ in range(max_iters):
                 if X.shape[0] == 0:
                     break
@@ -153,20 +153,19 @@ class ProcessingNode(Node):
                 # Strategy: Use a relative threshold or a fixed one if units are known
                 distance_mask = distances <= 1.2
                 X = X[distance_mask, :]
-            print(X.shape)
-            print(centroids.shape)
             # Publish using your publisher
+            '''
             if human.size > 0:
                 msg_human = self.pc_pub.create_pointcloud2(human,self.frame)
                 self.pc_pub.publisher.publish(msg_human)
-
+            '''
             msg_pose = self.po_pub.create_pose_array(centroids, self.frame)
             self.po_pub.publisher.publish(msg_pose)
-            '''
+
             if obstacle.size > 0:
                 msg_obs = self.pc_pub.create_pointcloud2(obstacle,self.frame)
                 self.pc_pub.publisher.publish(msg_obs)
-            '''
+
             '''
             msg_points = self.pc_pub.create_pointcloud2(points_points,self.frame)
             self.pc_pub.publisher.publish(msg_points)

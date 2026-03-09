@@ -5,17 +5,20 @@ import requests
 import time
 import torch.nn.functional as F
 import torch
+
+
+
 class Clipseg():
-  def __init__(self, prompts = ["human", "obstacle"]):
-    # Load model and processor
+  def __init__(self, prompts=["human", "obstacle"]):
+    self.device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(self.device)
+
     self.processor = CLIPSegProcessor.from_pretrained("CIDAS/clipseg-rd64-refined")
     self.model = CLIPSegForImageSegmentation.from_pretrained("CIDAS/clipseg-rd64-refined")
+    self.model.to(self.device).half() # Move to GPU and use FP16
     self.model.eval()
-    # Preprocess
-
 
     self.prompts = prompts
-
 
   def get_segmentation(self,input):
     self.input = input[:, :, ::-1]
@@ -28,22 +31,30 @@ class Clipseg():
     }
     self.processor.image_processor.do_resize = True
     self.processor.image_processor.do_center_crop = False
-    self.inputs = self.processor(
+    inputs = self.processor(
         text=self.prompts,
         images=[self.input] * len(self.prompts),
         padding="max_length",
         return_tensors="pt"
         )
+    inputs = {k: v.to(self.device) for k,v in inputs.items()}
+
+    # match model precision
+    inputs["pixel_values"] = inputs["pixel_values"].to(torch.float16)
     # Predict
     with torch.no_grad():
-        outputs = self.model(**self.inputs)
+        outputs = self.model(**inputs)
     logits = outputs.logits  # shape: (num_prompts, H, W)
     mask = torch.sigmoid(logits)
     mask = mask.unsqueeze(0).unsqueeze(0)  # NCHW
     mask = F.interpolate(mask, (logits.size(dim=0),480,640), mode="nearest")
 
-    return mask[0,0].detach().numpy(), logits
+    return mask[0,0].detach().cpu().numpy(), logits.cpu()
 
+
+
+
+  '''
   def visulize(self, mask):
       # shape: (num_prompts, H, W)
     e = time.time()
@@ -61,4 +72,4 @@ class Clipseg():
 
     plt.tight_layout()
     plt.show()
-
+'''
