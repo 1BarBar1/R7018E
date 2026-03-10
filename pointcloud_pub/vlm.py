@@ -9,13 +9,17 @@ import torch
 
 
 class Clipseg():
-  def __init__(self, prompts=["human", "obstacle"]):
+    #####
+
+    ############################################
+  def __init__(self, prompts=["blocks"]):
     self.device = "cuda" if torch.cuda.is_available() else "cpu"
     print(self.device)
 
     self.processor = CLIPSegProcessor.from_pretrained("CIDAS/clipseg-rd64-refined")
     self.model = CLIPSegForImageSegmentation.from_pretrained("CIDAS/clipseg-rd64-refined")
-    self.model.to(self.device).half() # Move to GPU and use FP16
+    self.model.to(self.device)
+    #.half() # Move to GPU and use FP16
     self.model.eval()
 
     self.prompts = prompts
@@ -37,10 +41,10 @@ class Clipseg():
         padding="max_length",
         return_tensors="pt"
         )
-    inputs = {k: v.to(self.device) for k,v in inputs.items()}
 
+    #inputs = {k: v.to(self.device) for k,v in inputs.items()}
     # match model precision
-    inputs["pixel_values"] = inputs["pixel_values"].to(torch.float16)
+    #inputs["pixel_values"] = inputs["pixel_values"].to(torch.float16)
     # Predict
     with torch.no_grad():
         outputs = self.model(**inputs)

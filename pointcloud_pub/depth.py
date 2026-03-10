@@ -6,6 +6,7 @@ class Depth:
   def __init__(self, depth_image,K):
     #going from numpy object to open 3d
     self.K = K
+    
     depth_image = depth_image.astype(np.uint16)
     depth_o3d = o3d.geometry.Image(depth_image)
 
@@ -26,6 +27,7 @@ class Depth:
         depth_scale=1000.0,   # Scaling from millimeters to metes
         depth_trunc=3.0      # clip far points (meters)
         )
+    
     '''
     R1 = self.pcd.get_rotation_matrix_from_xyz((0,0, np.pi))
 
