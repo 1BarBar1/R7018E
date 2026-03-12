@@ -5,20 +5,21 @@ from sensor_msgs.msg import CameraInfo
 import rclpy
 from rclpy.node import Node
 from rclpy.clock import Clock
-from rclpy.qos import QoSProfile
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 import numpy as np
 #import open3d as o3d
-from pointcloud_pub.depth import Depth
+import math
 from pointcloud_pub.vlm import Clipseg
 import time
 
 
 class ProcessingNode(Node):
-    def __init__(self,seg):
+    def __init__(self,seg_human, seg_obstacle):
         super().__init__('processing_node')
-        self.seg = seg
+        self.seg_human = seg_human
+        self.seg_obstacle = seg_obstacle
         self.bridge = CvBridge()
         self.pc_human_pub = PointCloudPublisher(topic_name='human')
         self.pc_obstacle_pub = PointCloudPublisher(topic_name='obstacle')
@@ -36,16 +37,32 @@ class ProcessingNode(Node):
         self.color_frame = None
         self.depth_frame = None
 
-        qos = QoSProfile(depth=10)
+        # Match the Image topics (Reliable + Transient Local)
+        image_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10
+        )
 
-        self.color_sub = Subscriber(self, Image, '/camera/color/image_raw')
-        self.depth_sub = Subscriber(self, Image, '/camera/depth/image_rect_raw')
+        # Match the Camera Info (Reliable + Volatile)
+        info_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10
+        )
 
+        # Image subscribers (using the Transient Local profile)
+        self.color_sub = Subscriber(self, Image, '/camera1/color/image_raw', qos_profile=image_qos)
+        self.depth_sub = Subscriber(self, Image, '/camera1/depth/image_rect_raw', qos_profile=image_qos)
+
+        # Camera Info subscriber (using the Volatile profile)
         self.info_sub = self.create_subscription(
             CameraInfo,
-            '/camera/depth/camera_info',
+            '/camera1/depth/camera_info',
             self.info_cb,
-            10
+            info_qos
         )
         #self.create_subscription(Image, '/camera/depth/camera_info', self.info_cb, 10)
 
@@ -58,16 +75,55 @@ class ProcessingNode(Node):
 
 
     def info_cb(self, msg):
+            if self.K is None:
+                self.K = np.array(msg.k).reshape(3,3)
+                self.frame = msg.header.frame_id
 
-        if self.K is None:
-            self.K = np.array(msg.k).reshape(3,3)
-            self.frame = msg.header.frame_id
+                self.get_logger().info("Camera info received")
 
-            self.get_logger().info("Camera info received")
-
-            self.destroy_subscription(self.info_sub)
+                self.destroy_subscription(self.info_sub)
 
 
+    def transformation(self, points):
+
+        xyz = points[:, :3]      # spatial coordinates
+        classes = points[:, 3]   # class labels
+
+        # --- Rotation Z (90°)
+        a = math.radians(-90)
+        Rz = np.array([
+            [math.cos(a), -math.sin(a), 0],
+            [math.sin(a),  math.cos(a), 0],
+            [0, 0, 1]
+        ])
+
+        # --- Rotation Y (90°)
+        a = math.radians(90)
+        Ry1 = np.array([
+            [math.cos(a), 0, math.sin(a)],
+            [0, 1, 0],
+            [-math.sin(a), 0, math.cos(a)]
+        ])
+        '''
+        # --- Rotation Y (42°)
+        a = math.radians(42)
+        Ry2 = np.array([
+            [math.cos(a), 0, math.sin(a)],
+            [0, 1, 0],
+            [-math.sin(a), 0, math.cos(a)]
+        ])
+        '''
+
+        rotated = xyz @ Rz.T
+        rotated = rotated @ Ry1.T
+        #rotated = rotated @ Ry2.T
+
+        # Translation
+        #rotated[:, 0] -= 0.04764571478
+        #rotated[:, 2] -= 0.462681785
+
+        # Reattach class column
+        return np.column_stack((rotated, classes))
     def synced_cb(self,color_msg,depth_msg):
         if self.K is None:
             print("no K")
@@ -75,113 +131,131 @@ class ProcessingNode(Node):
 
         color_frame = self.bridge.imgmsg_to_cv2(color_msg, desired_encoding='bgr8')
         depth_frame = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding='passthrough')
-
-        #start = time.time()
-        mask, logits = self.seg.get_segmentation(color_frame)
-        #print("seg time:", time.time() - start)
-
-
-        #depth = Depth(depth_frame, self.K)
-        # Convert to numpy points
-        #points = depth.o3dPoints_to_np()
-        depth_image = depth_frame.astype(np.uint16)
-
         mask_points = []
-        points_all = []
-        class_map = mask.argmax(axis=0)
-        conf = mask.max(axis=0)
-
-
-        ys, xs = np.where(conf > 0.08)
+        depth_image = depth_frame.astype(np.uint16)
         fx = self.K[0,0]
         fy = self.K[1,1]
         cx = self.K[0,2]
         cy = self.K[1,2]
 
-        #start1 = time.time()
-        for v,u in zip(ys, xs):
-            Z = depth_image[v,u] / 1000.0
-            if Z <= 0:
-                 continue
-            if Z > 2.0:
+        if self.seg_human:
+                mask_human, logits = self.seg_human.get_segmentation(color_frame)
+                conf_human = mask_human.max(axis=0)
+                ys, xs = np.where(conf_human > 0.08)
+                #start1 = time.time()
+                for v,u in zip(ys, xs):
+                    Z = depth_image[v,u] / 1000.0
+                    if Z <= 0:
+                        continue
+                    if Z > 6.0:
+                        continue
+
+
+                    X = (u-cx)*Z/fx
+                    Y = (v-cy)*Z/fy
+
+                    mask_points.append([X,Y,Z,0])
+                try:
+                    mask_points = np.asarray(mask_points)
+                    human = mask_points[mask_points[:,3]==0]
+
+                    X = human[:, :3]        # xyz
+                    classes = human[:, 3]   # class labels
+
+                    k = 1
+                    max_iters = 2
+
+                    centroids = np.zeros((k, 3))
+
+                    for _ in range(max_iters):
+
+                        if X.shape[0] == 0:
+                            break
+
+                        current_mean = np.mean(X, axis=0)
+
+                        if np.allclose(centroids[0], current_mean, atol=1e-4):
+                            break
+
+                        centroids[0] = current_mean
+
+                        distances = np.linalg.norm(X - centroids[0], axis=1)
+                        distance_mask = distances <= 0.8
+
+                        X = X[distance_mask]
+                        classes = classes[distance_mask]
+
+
+                    if classes.size > 0:
+                        centroid_class = np.bincount(classes.astype(int)).argmax()
+                    else:
+                        centroid_class = -1
+
+
+                    centroid_output = np.hstack((centroids, [[centroid_class]]))
+
+                    print(centroid_output.shape)
+
+                    centroid_transformed = self.transformation(centroid_output)
+                    human = self.transformation(human)
+
+
+                    if human.size > 0:
+                        msg_human = self.pc_human_pub.create_pointcloud2(human,self.frame)
+                        self.pc_human_pub.publisher.publish(msg_human)
+
+                    msg_pose = self.po_pub.create_pose_array(centroid_transformed, self.frame)
+                    self.po_pub.publisher.publish(msg_pose)
+                except (IndexError,ValueError):
+                    print("mask error")
+
+        #start = time.time()
+        if self.seg_obstacle:
+
+            mask_obstacle, logits = self.seg_obstacle.get_segmentation(color_frame)
+            conf_obstacle = mask_obstacle.max(axis=0)
+
+            ys, xs = np.where(conf_obstacle > 0.08)
+            #start1 = time.time()
+            for v,u in zip(ys, xs):
+                Z = depth_image[v,u] / 1000.0
+                if Z <= 0:
                     continue
-            if class_map[v,u] == 1:
-                if Z > 2.0:
-                    continue
-            if class_map[v,u] == 1:
                 if Z > 6.0:
                     continue
-            X = (u-cx)*Z/fx
-            Y = (v-cy)*Z/fy
-
-            mask_points.append([X,Y,Z,class_map[v,u]])
-        #print("proj time:", time.time() - start1)
 
 
-        #seg.visulize(mask)
-        try:
-            point_all = np.asarray(points_all)
-            mask_points = np.asarray(mask_points)
-            human = mask_points[mask_points[:,3]==0]
-            obstacle = mask_points[mask_points[:,3]==1]
-            # data: shape (n_samples, 4)
-            X = human[:, :3]   # keep x,y,z only
+                X = (u-cx)*Z/fx
+                Y = (v-cy)*Z/fy
 
-            k = 1
-            max_iters = 2
+                mask_points.append([X,Y,Z,1])
+            try:
 
+                mask_points = np.asarray(mask_points)
+                obstacle = mask_points[mask_points[:,3]==1]
 
-            # Initialize centroids with a starting value
-            centroids = np.array([0.0, 0.0, 0.0])
-            original_X = X.copy() # Keep the original data if you need it
-            #start2 = time.time()
-            print('proj',X.shape[0] )
-            for _ in range(max_iters):
-                if X.shape[0] == 0:
-                    break
+                if obstacle.size > 0:
+                    msg_obs = self.pc_obstacle_pub.create_pointcloud2(obstacle,self.frame)
+                    self.pc_obstacle_pub.publisher.publish(msg_obs)
+            except (IndexError,ValueError):
+                print("mask error")
 
-                # 1. Compute current mean
-                current_mean = np.mean(X, axis=0)
-
-                # 2. Check for convergence (did the mean move?)
-                if np.allclose(centroids, current_mean, atol=1e-4):
-                    pass
-
-                centroids = current_mean
-                print(centroids)
-                # 3. Filter points for the NEXT iteration
-                distances = np.linalg.norm(X - centroids, axis=1)
-                # Strategy: Use a relative threshold or a fixed one if units are known
-                distance_mask = distances <= 1.2
-                X = X[distance_mask, :]
-            #print("centroid time:", time.time() - start2)
-            # Publish using your publisher
-
-            if human.size > 0:
-                msg_human = self.pc_human_pub.create_pointcloud2(human,self.frame)
-                self.pc_human_pub.publisher.publish(msg_human)
-
-            msg_pose = self.po_pub.create_pose_array(centroids, self.frame)
-            self.po_pub.publisher.publish(msg_pose)
-
-            if obstacle.size > 0:
-                msg_obs = self.pc_obstacle_pub.create_pointcloud2(obstacle,self.frame)
-                self.pc_obstacle_pub.publisher.publish(msg_obs)
-
-
-
-        except (IndexError,ValueError):
-            print("mask error")
-        # Clear frames after processing
 
         self.color_frame = None
         self.depth_frame = None
 
 
 def main(args=None):
-    seg = Clipseg()
+    track_obs = False
+    if track_obs:
+        seg_human = Clipseg(prompts=["human"])
+        seg_obstacle = Clipseg(["obstacle"])
+    else:
+        seg_human = Clipseg(prompts=["human"])
+        seg_obstacle = None
+
     rclpy.init(args=args)
-    node = ProcessingNode(seg)
+    node = ProcessingNode(seg_human, seg_obstacle)
 
 
     try:

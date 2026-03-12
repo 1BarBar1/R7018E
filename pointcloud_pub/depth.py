@@ -65,9 +65,3 @@ class Depth:
     o3d.visualization.draw_geometries([self.pcd])
   def rotate(self,R, center=(0, 0, 0)):
     self.pcd = self.pcd.rotate(R, center=(0, 0, 0))
-
-
-
-
-
-

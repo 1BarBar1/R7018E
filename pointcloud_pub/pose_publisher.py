@@ -17,29 +17,29 @@ class PosePublisher(Node):
         columns: [x,y,z,(optional class)]
         """
 
-        assert points.ndim == 1
-
-
+        # Ensure points is a 2D array
         points = np.asarray(points, dtype=np.float32)
+        assert points.ndim == 2, f"points must be 2D, got {points.ndim}D"
 
         msg = PoseArray()
         msg.header = Header()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = frame
 
-        pose = Pose()
+        for row in points:
+            x, y, z = row[:3]  # ignore the class column
 
-        pose.position.x = float(points[0])
-        pose.position.y = float(points[1])
-        pose.position.z = float(points[2])
+            pose = Pose()
+            pose.position.x = float(x)
+            pose.position.y = float(y)
+            pose.position.z = float(z)
 
-        # neutral orientation
-        pose.orientation.x = 0.0
-        pose.orientation.y = 0.0
-        pose.orientation.z = 0.0
-        pose.orientation.w = 1.0
+            # neutral orientation
+            pose.orientation.x = 0.0
+            pose.orientation.y = 0.0
+            pose.orientation.z = 0.0
+            pose.orientation.w = 1.0
 
-        msg.poses.append(pose)
-
+            msg.poses.append(pose)
 
         return msg
