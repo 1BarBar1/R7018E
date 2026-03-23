@@ -17,6 +17,7 @@ class PosePublisher(Node):
         columns: [x,y,z,(optional class)]
         """
 
+
         # Ensure points is a 2D array
         points = np.asarray(points, dtype=np.float32)
         assert points.ndim == 2, f"points must be 2D, got {points.ndim}D"

@@ -32,7 +32,7 @@ class ProcessingNode(Node):
             [0.0,                 0.0,                1.0]
             ], dtype=np.float32)
         '''
-        self.frame ="camera_depth_optical_frame"
+        self.frame ="camera1_depth_optical_frame"
 
         self.color_frame = None
         self.depth_frame = None
@@ -104,23 +104,23 @@ class ProcessingNode(Node):
             [0, 1, 0],
             [-math.sin(a), 0, math.cos(a)]
         ])
-        '''
+
         # --- Rotation Y (42°)
-        a = math.radians(42)
+        a = math.radians(50)
         Ry2 = np.array([
             [math.cos(a), 0, math.sin(a)],
             [0, 1, 0],
             [-math.sin(a), 0, math.cos(a)]
         ])
-        '''
+
 
         rotated = xyz @ Rz.T
         rotated = rotated @ Ry1.T
-        #rotated = rotated @ Ry2.T
+        rotated = rotated @ Ry2.T
 
         # Translation
         #rotated[:, 0] -= 0.04764571478
-        #rotated[:, 2] -= 0.462681785
+        rotated[:, 2] += 1.2
 
         # Reattach class column
         return np.column_stack((rotated, classes))
@@ -131,7 +131,9 @@ class ProcessingNode(Node):
 
         color_frame = self.bridge.imgmsg_to_cv2(color_msg, desired_encoding='bgr8')
         depth_frame = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding='passthrough')
-        mask_points = []
+        #color_frame = cv2.rotate(color_frame, cv2.ROTATE_180)
+        #depth_frame = cv2.rotate(depth_frame, cv2.ROTATE_180)
+
         depth_image = depth_frame.astype(np.uint16)
         fx = self.K[0,0]
         fy = self.K[1,1]
@@ -139,6 +141,7 @@ class ProcessingNode(Node):
         cy = self.K[1,2]
 
         if self.seg_human:
+                mask_points = []
                 mask_human, logits = self.seg_human.get_segmentation(color_frame)
                 conf_human = mask_human.max(axis=0)
                 ys, xs = np.where(conf_human > 0.08)
@@ -194,13 +197,14 @@ class ProcessingNode(Node):
 
                     centroid_output = np.hstack((centroids, [[centroid_class]]))
 
-                    print(centroid_output.shape)
+
 
                     centroid_transformed = self.transformation(centroid_output)
                     human = self.transformation(human)
 
 
                     if human.size > 0:
+
                         msg_human = self.pc_human_pub.create_pointcloud2(human,self.frame)
                         self.pc_human_pub.publisher.publish(msg_human)
 
@@ -211,6 +215,7 @@ class ProcessingNode(Node):
 
         #start = time.time()
         if self.seg_obstacle:
+            mask_points = []
 
             mask_obstacle, logits = self.seg_obstacle.get_segmentation(color_frame)
             conf_obstacle = mask_obstacle.max(axis=0)
@@ -221,7 +226,7 @@ class ProcessingNode(Node):
                 Z = depth_image[v,u] / 1000.0
                 if Z <= 0:
                     continue
-                if Z > 6.0:
+                if Z > 3.0:
                     continue
 
 
@@ -233,7 +238,7 @@ class ProcessingNode(Node):
 
                 mask_points = np.asarray(mask_points)
                 obstacle = mask_points[mask_points[:,3]==1]
-
+                obstacle = transformation(obstacle)
                 if obstacle.size > 0:
                     msg_obs = self.pc_obstacle_pub.create_pointcloud2(obstacle,self.frame)
                     self.pc_obstacle_pub.publisher.publish(msg_obs)
@@ -248,7 +253,8 @@ class ProcessingNode(Node):
 def main(args=None):
     track_obs = False
     if track_obs:
-        seg_human = Clipseg(prompts=["human"])
+        #Clipseg(prompts=["human"])
+        seg_human = None
         seg_obstacle = Clipseg(["obstacle"])
     else:
         seg_human = Clipseg(prompts=["human"])

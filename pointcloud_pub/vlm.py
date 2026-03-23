@@ -9,7 +9,7 @@ import torch
 
 
 class Clipseg():
-  def __init__(self, prompts=["human"]):
+  def __init__(self, prompts=["Blocks"]):
     self.device = "cuda" if torch.cuda.is_available() else "cpu"
     print(self.device)
 
