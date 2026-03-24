@@ -1,3 +1,7 @@
+from pointcloud_pub.vlm import Clipseg
+import numpy as np
+import math
+import time
 from pointcloud_pub.pointcloud_publisher import PointCloudPublisher
 from pointcloud_pub.pose_publisher import PosePublisher
 from message_filters import Subscriber, ApproximateTimeSynchronizer
@@ -8,11 +12,7 @@ from rclpy.clock import Clock
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
-import numpy as np
-#import open3d as o3d
-import math
-from pointcloud_pub.vlm import Clipseg
-import time
+
 
 
 class ProcessingNode(Node):
@@ -25,13 +25,7 @@ class ProcessingNode(Node):
         self.pc_obstacle_pub = PointCloudPublisher(topic_name='obstacle')
         self.po_pub = PosePublisher()
         self.K = None
-        '''
-        np.array([
-            [908.531982421875,   0.0,                639.4365844726562],
-            [0.0,                 907.80322265625,  365.8372497558594],
-            [0.0,                 0.0,                1.0]
-            ], dtype=np.float32)
-        '''
+
         self.frame ="camera1_depth_optical_frame"
 
         self.color_frame = None
@@ -64,7 +58,7 @@ class ProcessingNode(Node):
             self.info_cb,
             info_qos
         )
-        #self.create_subscription(Image, '/camera/depth/camera_info', self.info_cb, 10)
+
 
         self.time_sync = ApproximateTimeSynchronizer(
             [self.color_sub, self.depth_sub],
@@ -118,11 +112,9 @@ class ProcessingNode(Node):
         rotated = rotated @ Ry1.T
         rotated = rotated @ Ry2.T
 
-        # Translation
-        #rotated[:, 0] -= 0.04764571478
+
         rotated[:, 2] += 1.2
 
-        # Reattach class column
         return np.column_stack((rotated, classes))
     def synced_cb(self,color_msg,depth_msg):
         if self.K is None:
@@ -131,8 +123,6 @@ class ProcessingNode(Node):
 
         color_frame = self.bridge.imgmsg_to_cv2(color_msg, desired_encoding='bgr8')
         depth_frame = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding='passthrough')
-        #color_frame = cv2.rotate(color_frame, cv2.ROTATE_180)
-        #depth_frame = cv2.rotate(depth_frame, cv2.ROTATE_180)
 
         depth_image = depth_frame.astype(np.uint16)
         fx = self.K[0,0]
@@ -145,7 +135,8 @@ class ProcessingNode(Node):
                 mask_human, logits = self.seg_human.get_segmentation(color_frame)
                 conf_human = mask_human.max(axis=0)
                 ys, xs = np.where(conf_human > 0.08)
-                #start1 = time.time()
+
+
                 for v,u in zip(ys, xs):
                     Z = depth_image[v,u] / 1000.0
                     if Z <= 0:

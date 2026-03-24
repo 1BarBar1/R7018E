@@ -1,10 +1,12 @@
+import torch
+import torch.nn.functional as F
 from transformers import CLIPSegProcessor, CLIPSegForImageSegmentation
 from PIL import Image
 import requests
 #import matplotlib.pyplot as plt
 import time
-import torch.nn.functional as F
-import torch
+
+
 
 
 
@@ -15,6 +17,7 @@ class Clipseg():
 
     self.processor = CLIPSegProcessor.from_pretrained("CIDAS/clipseg-rd64-refined")
     self.model = CLIPSegForImageSegmentation.from_pretrained("CIDAS/clipseg-rd64-refined")
+
     self.model.to(self.device)
     #.half() # Move to GPU and use FP16
     self.model.eval()
@@ -55,22 +58,3 @@ class Clipseg():
 
 
 
-  '''
-  def visulize(self, mask):
-      # shape: (num_prompts, H, W)
-    e = time.time()
-    # Plot
-    fig, ax = plt.subplots(1, len(self.prompts) + 1, figsize=(3 * (len(self.prompts) + 1), 4))
-
-    ax[0].imshow(self.image)
-    ax[0].set_title("Image")
-    ax[0].axis("off")
-
-    for i, prompt in enumerate(self.prompts):
-        ax[i + 1].imshow(mask[i], cmap="viridis")
-        ax[i + 1].set_title(prompt)
-        ax[i + 1].axis("off")
-
-    plt.tight_layout()
-    plt.show()
-'''
