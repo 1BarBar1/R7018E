@@ -12,13 +12,8 @@ class PosePublisher(Node):
         self.publisher = self.create_publisher(PoseArray, topic_name, 10)
 
     def create_pose_array(self, points, frame):
-        """
-        points: numpy array of shape (n,3) or (n,4)
-        columns: [x,y,z,(optional class)]
-        """
 
 
-        # Ensure points is a 2D array
         points = np.asarray(points, dtype=np.float32)
         assert points.ndim == 2, f"points must be 2D, got {points.ndim}D"
 

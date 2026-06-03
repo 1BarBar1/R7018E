@@ -50,7 +50,7 @@ class Clipseg():
         outputs = self.model(**inputs)
     logits = outputs.logits  # shape: (num_prompts, H, W)
     mask = torch.sigmoid(logits)
-    mask = mask.unsqueeze(0).unsqueeze(0)  # NCHW
+    mask = mask.unsqueeze(0).unsqueeze(0)  # NCHW?``
     mask = F.interpolate(mask, (logits.size(dim=0),480,640), mode="nearest")
 
     return mask[0,0].detach().cpu().numpy(), logits.cpu()

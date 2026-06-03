@@ -11,16 +11,12 @@ class PointCloudPublisher(Node):
     def create_pointcloud2(self, points, frame):
         from sensor_msgs.msg import PointField
         from std_msgs.msg import Header
-        '''
-        print("points type:", type(points))
-        print("points shape:", points.shape)
-        print("points ndim:", points.ndim)
-        '''
+       
 
         assert points.ndim == 2 and points.shape[1] == 4
         points = np.asarray(points, dtype=np.float32)
         points = np.ascontiguousarray(points)
-        #points = np.ascontiguousarray(points, dtype=np.float32)
+    
 
         msg = PointCloud2()
         msg.header = Header()
